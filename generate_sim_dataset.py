@@ -105,31 +105,34 @@ def classify_symbols(symbols):
         elif sym == ideal_qpsk_constellation[3]:
             bits_decided.extend([1, 1])
     return np.array(bits_decided)
-def simple_normalize_dataset(dataset):
-    """简单的两遍归一化"""
-    # 收集所有信号数据
-    all_signals = []
+def energy_normalize_dataset(dataset):
+    """分别对仿真信号和采集信号分组归一化，使能量一致"""
+    # 统计仿真信号和采集信号的能量
+    sim_energies = []
+    real_energies = []
     for entry in dataset:
-        all_signals.append(entry['mixsignal'])
-        all_signals.append(entry['rfsignal1'])
-        all_signals.append(entry['rfsignal2'])
-    
-    # 计算全局统计量
-    all_i = np.concatenate([np.real(sig) for sig in all_signals])
-    all_q = np.concatenate([np.imag(sig) for sig in all_signals])
-    
-    i_mean, i_std = np.mean(all_i), np.std(all_i)
-    q_mean, q_std = np.mean(all_q), np.std(all_q)
-    
-    print(f"归一化参数 - I: mean={i_mean:.6f}, std={i_std:.6f}")
-    print(f"归一化参数 - Q: mean={q_mean:.6f}, std={q_std:.6f}")
-    
-    # 应用归一化
+        if entry['origin_len'] == 1:  # 仿真信号
+            sim_energies.append(np.mean(np.abs(entry['mixsignal'])**2))
+        elif entry['origin_len'] == -1:  # 采集信号
+            real_energies.append(np.mean(np.abs(entry['mixsignal'])**2))
+    # 计算均值能量
+    sim_energy_mean = np.mean(sim_energies) if sim_energies else 1.0
+    real_energy_mean = np.mean(real_energies) if real_energies else 1.0
+
+    print(f"仿真信号平均能量: {sim_energy_mean:.6f}")
+    print(f"采集信号平均能量: {real_energy_mean:.6f}")
+
+    # 分别归一化
     for entry in dataset:
-        entry['mixsignal'] = (np.real(entry['mixsignal']) - i_mean) / i_std + 1j * (np.imag(entry['mixsignal']) - q_mean) / q_std
-        entry['rfsignal1'] = (np.real(entry['rfsignal1']) - i_mean) / i_std + 1j * (np.imag(entry['rfsignal1']) - q_mean) / q_std
-        entry['rfsignal2'] = (np.real(entry['rfsignal2']) - i_mean) / i_std + 1j * (np.imag(entry['rfsignal2']) - q_mean) / q_std
-    
+        if entry['origin_len'] == 1:  # 仿真信号
+            scale = np.sqrt(sim_energy_mean)
+        elif entry['origin_len'] == -1:  # 采集信号
+            scale = np.sqrt(real_energy_mean)
+        else:
+            scale = 1.0
+        entry['mixsignal'] = entry['mixsignal'] / scale
+        entry['rfsignal1'] = entry['rfsignal1'] / scale
+        entry['rfsignal2'] = entry['rfsignal2'] / scale
     return dataset
 bit_len = int(3072 / 4)      # bit串长度
 num_blocks_total = 50000      # 块数
@@ -138,7 +141,7 @@ dataset = []
 entry_count = 0
 idx = 0
 
-sim_ratios = [0.25,0.5,0.75,1]
+sim_ratios = [0, 0.25,0.5,0.75,1]
 for sim_ratio in sim_ratios:
     num_blocks_sim = int(num_blocks_total * sim_ratio)
     num_blocks_real = num_blocks_total - num_blocks_sim
@@ -187,7 +190,7 @@ for sim_ratio in sim_ratios:
             'params':(snr_db, freq_overlap_percentage, amplititude_ratio, sps, random_phase_diff, random_delay, 'QPSK'),
             'bits1':-1,
             'bits2':-1,
-            'origin_len':-1
+            'origin_len':1
         }
         entry_count += 1
         if entry_count % 100 == 0:
@@ -215,7 +218,38 @@ for sim_ratio in sim_ratios:
         entry_count += 1
         if entry_count % 100 == 0:
             print(f"已生成 {entry_count} 块信号，当前sim_ratio={sim_ratio}")
-    dataset_normed = simple_normalize_dataset(dataset)
+    dataset_normed = energy_normalize_dataset(dataset)
     print('归一化完成，开始保存数据集...')
+
+    # 可视化
+    sample_real = None
+    sample_sim = None
+    for entry in dataset_normed:
+        if entry['origin_len'] == 1 and sample_real is None:
+            sample_real = entry
+        if entry['origin_len'] == -1 and sample_sim is None:
+            sample_sim = entry
+        if sample_real is not None and sample_sim is not None:
+            break
+    # plt.figure(figsize=(12, 5))
+    # plt.subplot(1, 2, 1)
+    # plt.plot(np.real(sample_real['mixsignal'][:8*50]), label='混合')
+    # plt.plot(np.real(sample_real['rfsignal1'][:8*50]), label='信号1', alpha=0.7)
+    # plt.plot(np.real(sample_real['rfsignal2'][:8*50]), label='信号2', alpha=0.7)
+    # plt.title('采集信号示例 (I分量)')
+    # plt.xlabel('采样点')
+    # plt.ylabel('幅度')
+    # plt.legend()
+    # plt.subplot(1, 2, 2)
+    # plt.plot(np.real(sample_sim['mixsignal'][:8*50]), label='混合')
+    # plt.plot(np.real(sample_sim['rfsignal1'][:8*50]), label='信号1', alpha=0.7)
+    # plt.plot(np.real(sample_sim['rfsignal2'][:8*50]), label='信号2', alpha=0.7)
+    # plt.title('仿真信号示例 (I分量)')
+    # plt.xlabel('采样点')
+    # plt.ylabel('幅度')
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.savefig(f'./src/pics/qpsk_sim_data_simr{int(sim_ratio*100)}_example.png')
+
     torch.save(dataset_normed, f'/nas/datasets/yixin/PCMA/sim_data/qpsk_sim_data_simr{int(sim_ratio*100)}.pth')
     print(f"已生成并保存信号，每块长度 {bit_len*sps}，保存路径: /nas/datasets/yixin/PCMA/sim_data/qpsk_sim_data_simr{sim_ratio}.pth")

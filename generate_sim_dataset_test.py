@@ -75,31 +75,34 @@ signal2_blocks = split_blocks(signal2, input_len)
 symbols1_blocks = split_blocks(symbols1, input_len//sps)
 symbols2_blocks = split_blocks(symbols2, input_len//sps)
 
-def simple_normalize_dataset(dataset):
-    """简单的两遍归一化"""
-    # 收集所有信号数据
-    all_signals = []
+def energy_normalize_dataset(dataset):
+    """分别对仿真信号和采集信号分组归一化，使能量一致"""
+    # 统计仿真信号和采集信号的能量
+    sim_energies = []
+    real_energies = []
     for entry in dataset:
-        all_signals.append(entry['mixsignal'])
-        all_signals.append(entry['rfsignal1'])
-        all_signals.append(entry['rfsignal2'])
-    
-    # 计算全局统计量
-    all_i = np.concatenate([np.real(sig) for sig in all_signals])
-    all_q = np.concatenate([np.imag(sig) for sig in all_signals])
-    
-    i_mean, i_std = np.mean(all_i), np.std(all_i)
-    q_mean, q_std = np.mean(all_q), np.std(all_q)
-    
-    print(f"归一化参数 - I: mean={i_mean:.6f}, std={i_std:.6f}")
-    print(f"归一化参数 - Q: mean={q_mean:.6f}, std={q_std:.6f}")
-    
-    # 应用归一化
+        if entry['origin_len'] == 1:  # 仿真信号
+            sim_energies.append(np.mean(np.abs(entry['mixsignal'])**2))
+        elif entry['origin_len'] == -1:  # 采集信号
+            real_energies.append(np.mean(np.abs(entry['mixsignal'])**2))
+    # 计算均值能量
+    sim_energy_mean = np.mean(sim_energies) if sim_energies else 1.0
+    real_energy_mean = np.mean(real_energies) if real_energies else 1.0
+
+    print(f"仿真信号平均能量: {sim_energy_mean:.6f}")
+    print(f"采集信号平均能量: {real_energy_mean:.6f}")
+
+    # 分别归一化
     for entry in dataset:
-        entry['mixsignal'] = (np.real(entry['mixsignal']) - i_mean) / i_std + 1j * (np.imag(entry['mixsignal']) - q_mean) / q_std
-        entry['rfsignal1'] = (np.real(entry['rfsignal1']) - i_mean) / i_std + 1j * (np.imag(entry['rfsignal1']) - q_mean) / q_std
-        entry['rfsignal2'] = (np.real(entry['rfsignal2']) - i_mean) / i_std + 1j * (np.imag(entry['rfsignal2']) - q_mean) / q_std
-    
+        if entry['origin_len'] == 1:  # 仿真信号
+            scale = np.sqrt(sim_energy_mean)
+        elif entry['origin_len'] == -1:  # 采集信号
+            scale = np.sqrt(real_energy_mean)
+        else:
+            scale = 1.0
+        entry['mixsignal'] = entry['mixsignal'] / scale
+        entry['rfsignal1'] = entry['rfsignal1'] / scale
+        entry['rfsignal2'] = entry['rfsignal2'] / scale
     return dataset
 def qpsk_demod(symbols):
     # QPSK判决，返回比特流
@@ -141,7 +144,7 @@ for index in range(num_blocks_real):
     entry_count += 1
     if entry_count % 100 == 0:
         print(f"已生成 {entry_count} 块信号")
-dataset_normed = simple_normalize_dataset(dataset)
+dataset_normed = energy_normalize_dataset(dataset)
 print('归一化完成，开始保存数据集...')
 torch.save(dataset_normed, f'/nas/datasets/yixin/PCMA/sim_data/qpsk_sim_data_test.pth')
 print(f"已生成并保存信号，每块长度 {input_len}，保存路径: /nas/datasets/yixin/PCMA/sim_data/qpsk_sim_data_test.pth")
