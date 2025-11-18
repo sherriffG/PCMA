@@ -65,39 +65,39 @@ def constellation_analysis(signal, sps):
     print(f"相位统计: 均值={np.mean(phases):.4f}, 标准差={np.std(phases):.4f}")
     
     return amplitudes, phases
-# 参数设置
-fs = 12e6  # 采样频率
-path = '/nas/datasets/LYX/PCMA/QPSK_16/1050/'
-filename = 'splited_data.dat'
-file = path + filename
-sps = 8
-# 读取数据
-data = np.fromfile(file, dtype=np.int16)
-complex_data = data[0::2].astype(np.float32) + 1j * data[1::2].astype(np.float32)
+# # 参数设置
+# fs = 12e6  # 采样频率
+# path = '/nas/datasets/LYX/PCMA/QPSK_16/1050/'
+# filename = 'splited_data.dat'
+# file = path + filename
+# sps = 8
+# # 读取数据
+# data = np.fromfile(file, dtype=np.int16)
+# complex_data = data[0::2].astype(np.float32) + 1j * data[1::2].astype(np.float32)
 
-complex_data_compensated, phase_history = costas_loop(complex_data, loop_bandwidth=0.00001, sps=8)
+# complex_data_compensated, phase_history = costas_loop(complex_data, loop_bandwidth=0.00001, sps=8)
 
-plt.figure(figsize=(10, 6))
-plt.subplot(2, 1, 1)
-center_offset = int(sps / 2)
-symbol_samples = complex_data_compensated[center_offset::sps]
+# plt.figure(figsize=(10, 6))
+# plt.subplot(2, 1, 1)
+# center_offset = int(sps / 2)
+# symbol_samples = complex_data_compensated[center_offset::sps]
 
-plt.scatter(symbol_samples.real, symbol_samples.imag, alpha=0.5)
-plt.title('Compensated Constellation Diagram')
-plt.xlabel('In-phase')
-plt.ylabel('Quadrature')
-plt.grid(True)
-plt.axis('equal')
+# plt.scatter(symbol_samples.real, symbol_samples.imag, alpha=0.5)
+# plt.title('Compensated Constellation Diagram')
+# plt.xlabel('In-phase')
+# plt.ylabel('Quadrature')
+# plt.grid(True)
+# plt.axis('equal')
 
-plt.subplot(2, 1, 2)
-center_offset = int(sps / 2)
-symbol_samples = complex_data[center_offset::sps]
-plt.scatter(symbol_samples.real, symbol_samples.imag, alpha=0.5)
-plt.title('Original Constellation Diagram')
-plt.xlabel('In-phase')
-plt.ylabel('Quadrature')
-plt.grid(True)
-plt.axis('equal')
+# plt.subplot(2, 1, 2)
+# center_offset = int(sps / 2)
+# symbol_samples = complex_data[center_offset::sps]
+# plt.scatter(symbol_samples.real, symbol_samples.imag, alpha=0.5)
+# plt.title('Original Constellation Diagram')
+# plt.xlabel('In-phase')
+# plt.ylabel('Quadrature')
+# plt.grid(True)
+# plt.axis('equal')
 
-plt.tight_layout()
-plt.savefig('./src/splited_data/costas_loop_phase_estimate.png')
+# plt.tight_layout()
+# plt.savefig('./src/splited_data/costas_loop_phase_estimate.png')

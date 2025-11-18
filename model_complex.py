@@ -78,19 +78,33 @@ class Separator(nn.Module):
         self.bottleneck2 = nn.Conv1d(128*5, input_channels*4, 1)
         self.prelu = nn.PReLU()
 
+        # 新增：用于调试的变量
+        self.last_mask_stats = None
+
     def forward(self, x):
         x = self.gn(x)
         x = self.bottleneck1(x)
         outputs = []
         for dilated_conv in self.dilated_convs:
-            output = dilated_conv(x)
-            outputs.append(output)
+            outputs.append(dilated_conv(x))
         x = torch.cat(outputs, dim=1)
         x = self.prelu(x)
         x = self.bottleneck2(x)
         mask = torch.sigmoid(x)
-        mask_chunk = torch.chunk(mask,4,dim=1)
+
+        # ---------- 新增：记录 mask 统计 ----------
+        if not self.training:
+            with torch.no_grad():
+                self.last_mask_stats = {
+                    "mean": mask.mean().item(),
+                    "min": mask.min().item(),
+                    "max": mask.max().item()
+                }
+        # ----------------------------------------
+
+        mask_chunk = torch.chunk(mask, 4, dim=1)
         return mask_chunk
+
 class Conv_up(nn.Module):
     def __init__(self, in_channels=256, kernel_size=5):
         super(Conv_up, self).__init__()
