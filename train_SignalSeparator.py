@@ -552,7 +552,7 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.set_device(local_rank)
 
-    mode_name = f'qpsk_train_rand_freqU[0,200]_phi1U[0.0000,6.2832]_phi2U[0.0000,6.2832]_ampU[0.30,0.90]_snrU[12,30]_N{args.N}_varsnr_ampr_phi1phi2_delay0T_c64'
+    mode_name = f'mixedmods_train_robust_rand_freqU[0,200]_phi1U[0.0000,6.2832]_phi2U[0.0000,6.2832]_ampU[0.20,0.90]_snrU[8,22]_N100000_varsnr_ampr_phi1phi2_delay0T_c64'
     save_pic = f'./src/pics/all/loss_SigSep_{mode_name}.png'
     save_dir = './src/check_points/all'; os.makedirs(save_dir, exist_ok=True)
     final_ckpt = os.path.join(save_dir, f'signal_separator_{mode_name}.pth')

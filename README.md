@@ -35,6 +35,21 @@ python test_sim_SignalSeparator.py \
   --out_dir "./src/newdemod2" \
   --batch_size 64 --num_workers 4 --amp
 
+
+python test_sim_SignalSeparator.py \
+  --ckpt_path "./src/check_points/all/signal_separator_qpsk_train_rand_freqU[0,200]_phi1U[0.0000,6.2832]_phi2U[0.0000,6.2832]_ampU[0.30,0.90]_snrU[12,30]_N100000_varsnr_ampr_phi1phi2_delay0T_c64_best.pth" \
+  --test_data_path /nas/datasets/yixin/PCMA/sim_data/qpsk_test_all_grid_F110_F210_P18_P28_A5_S4_R1.pth \
+  --out_dir ./src/pics/test_all_viz_ddp_newdemod_run1 \
+  --batch_size 64 --num_workers 4 --max_const_plots 12 --max_time_plots 12
+
+
+python extract_subset.py \
+  --input /nas/datasets/yixin/PCMA/sim_data/qpsk_test_all_grid_F110_F210_P18_P28_A5_S4_R1.pth \
+  --output /nas/datasets/yixin/PCMA/sim_data/qpsk_test_subset_N2000.pth \
+  --N 2000 --require_bits
+
+
+
 CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6 \
 torchrun --nproc_per_node=7 train_SignalSeparator.py \
   --batch_size 64 --epochs 120 --N 100000 \
@@ -42,4 +57,16 @@ torchrun --nproc_per_node=7 train_SignalSeparator.py \
   --warmup_epochs 3 --min_lr_ratio 0.1 \
   --accum_steps 1 --ema_decay 0.999 --use_ema \
   --mse_epoch 120 
+
+python extract_and_demod_rfsignal1.py \
+  --dataset /nas/datasets/yixin/PCMA/sim_data/qpsk_test_subset_N2000.pth \
+  --snr 12 18 24 30 --max_blocks 2000
+
+python generate_sim_dataset.py \
+  --mode train \
+  --train_profile robust \
+  --train_sizes 100k \
+  --shard_size 10000 \
+  --save_complex64
+
 ```

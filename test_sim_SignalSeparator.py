@@ -37,6 +37,7 @@ def cleanup_ddp():
 
 # ==================== DSP 基本件 ====================
 beta, sps, num_taps = 0.33, 8, 64
+fs = 12e6
 
 def rc_filter(beta, sps, num_taps):
     t = np.arange(-num_taps//2, num_taps//2) / sps
@@ -341,12 +342,27 @@ def main():
                     params_i = str(params_batch)
                 meta = parse_params_all(str(params_i))
 
-                # ========= 解调链路：Costas + MF + best_offset + guard =========
-                # Costas 环（各路独立）
-                pr1_c, _ = costas_loop(pr1, loop_bandwidth=0.001, sps=sps)
-                pr2_c, _ = costas_loop(pr2, loop_bandwidth=0.001, sps=sps)
-                gt1_c, _ = costas_loop(gt1, loop_bandwidth=0.001, sps=sps)
-                gt2_c, _ = costas_loop(gt2, loop_bandwidth=0.001, sps=sps)
+                # ========= 解调链路：用条目中给定的理想 CFO/相位做补偿 + MF + best_offset + guard =========
+                # 参考 params 中的 f_off1/f_off 和 phi1/phi0
+                f1 = meta.get('f_off1', None)
+                f2 = meta.get('f_off2', None)
+                phi1 = meta.get('phi1', None)
+                phi2 = meta.get('phi2', None)
+
+                # 如果参数缺失则退化为不补偿
+                if f1 is None: f1 = 0.0
+                if f2 is None: f2 = 0.0
+                if phi1 is None: phi1 = 0.0
+                if phi2 is None: phi2 = 0.0
+
+                n = np.arange(len(pr1))
+                t = n / fs
+
+                # 对预测与 GT 同样使用理想补偿（便于比较）
+                pr1_c = pr1 * np.exp(-1j * (2 * np.pi * float(f1) * t + float(phi1)))
+                pr2_c = pr2 * np.exp(-1j * (2 * np.pi * float(f2) * t + float(phi2)))
+                gt1_c = gt1 * np.exp(-1j * (2 * np.pi * float(f1) * t + float(phi1)))
+                gt2_c = gt2 * np.exp(-1j * (2 * np.pi * float(f2) * t + float(phi2)))
 
                 # RC 匹配滤波 + 抽样 + guard + 幅度归一化
                 ps1 = mf_and_sample(pr1_c, sps, rc, num_taps)
@@ -503,19 +519,23 @@ def main():
             os.makedirs(os.path.dirname(path), exist_ok=True)
             plt.tight_layout(); plt.savefig(path, dpi=dpi); plt.close()
 
-        # 1) BER 分布/CDF
+        # 1) BER 分布/CDF -> 使用对数 BER (log10)
         if "BER" in df.columns and len(df):
-            plt.figure(figsize=(6,4))
-            plt.hist(df["BER"].clip(0,1), bins=40, density=True, alpha=0.8)
-            plt.xlabel("BER"); plt.ylabel("Density"); plt.title("BER Histogram")
-            save_fig2(os.path.join(OUT_DIR, "ber_hist.png"))
+            small = 1e-12
+            ber_vals = df["BER"].clip(lower=small, upper=1.0)
+            log_ber = np.log10(ber_vals)
 
             plt.figure(figsize=(6,4))
-            ber_sorted = np.sort(df["BER"].values)
+            plt.hist(log_ber, bins=40, density=True, alpha=0.8)
+            plt.xlabel("log10(BER)"); plt.ylabel("Density"); plt.title("log10(BER) Histogram")
+            save_fig2(os.path.join(OUT_DIR, "ber_hist_log10.png"))
+
+            plt.figure(figsize=(6,4))
+            ber_sorted = np.sort(log_ber.values)
             p = np.linspace(0,1,len(ber_sorted))
             plt.plot(ber_sorted, p)
-            plt.xlabel("BER"); plt.ylabel("CDF"); plt.title("BER CDF")
-            save_fig2(os.path.join(OUT_DIR, "ber_cdf.png"))
+            plt.xlabel("log10(BER)"); plt.ylabel("CDF"); plt.title("log10(BER) CDF")
+            save_fig2(os.path.join(OUT_DIR, "ber_cdf_log10.png"))
 
         # 2) EVM CDF（分 SNR）
         def plot_evm_cdf_by_snr(col, name):
@@ -534,27 +554,36 @@ def main():
         plot_evm_cdf_by_snr('evm1', 'EVM1')
         plot_evm_cdf_by_snr('evm2', 'EVM2')
 
-        # 3) BER vs SNR（分幅度比）
+        # 3) BER vs SNR（分幅度比） -> 绘制对数 BER（mean log10(BER)）
         if all(c in df.columns for c in ["amp", "snr", "BER"]):
+            small = 1e-12
             plt.figure(figsize=(8,5))
             for a in sorted([v for v in df['amp'].dropna().unique()]):
-                sub = df[df['amp']==a].groupby('snr', as_index=False)['BER'].mean().sort_values('snr')
-                if len(sub)==0: continue
-                plt.plot(sub['snr'], sub['BER'], marker='o', label=f"amp={a:.2f}")
+                sub_raw = df[df['amp']==a].dropna(subset=['BER','snr'])
+                if len(sub_raw)==0: continue
+                # 计算每个 snr 的 mean log10(BER)
+                sub = (sub_raw.groupby('snr', as_index=False)
+                       .agg(mean_log10_ber=('BER', lambda x: np.mean(np.log10(np.clip(x, small, 1.0)))))
+                       .sort_values('snr'))
+                plt.plot(sub['snr'], sub['mean_log10_ber'], marker='o', label=f"amp={a:.2f}")
             plt.grid(True); plt.legend(ncol=2)
-            plt.xlabel("SNR (dB)"); plt.ylabel("Mean BER"); plt.title("BER vs SNR (per amplitude)")
-            save_fig2(os.path.join(OUT_DIR, "ber_vs_snr_per_amp.png"))
+            plt.xlabel("SNR (dB)"); plt.ylabel("mean log10(BER)"); plt.title("log10(BER) vs SNR (per amplitude)")
+            save_fig2(os.path.join(OUT_DIR, "ber_vs_snr_per_amp_log10.png"))
 
-        # 4) BER vs amp（分 SNR）
+        # 4) BER vs amp（分 SNR） -> 绘制 mean log10(BER) vs amp
         if all(c in df.columns for c in ["amp", "snr", "BER"]):
+            small = 1e-12
             plt.figure(figsize=(8,5))
             for s in sorted([v for v in df['snr'].dropna().unique()]):
-                sub = df[df['snr']==s].groupby('amp', as_index=False)['BER'].mean().sort_values('amp')
-                if len(sub)==0: continue
-                plt.plot(sub['amp'], sub['BER'], marker='o', label=f"SNR={s:g}dB")
+                sub_raw = df[df['snr']==s].dropna(subset=['BER','amp'])
+                if len(sub_raw)==0: continue
+                sub = (sub_raw.groupby('amp', as_index=False)
+                       .agg(mean_log10_ber=('BER', lambda x: np.mean(np.log10(np.clip(x, small, 1.0)))))
+                       .sort_values('amp'))
+                plt.plot(sub['amp'], sub['mean_log10_ber'], marker='o', label=f"SNR={s:g}dB")
             plt.grid(True); plt.legend(ncol=2)
-            plt.xlabel("Amplitude ratio (a=|s2|/|s1|)"); plt.ylabel("Mean BER"); plt.title("BER vs amplitude (per SNR)")
-            save_fig2(os.path.join(OUT_DIR, "ber_vs_amp_per_snr.png"))
+            plt.xlabel("Amplitude ratio (a=|s2|/|s1|)"); plt.ylabel("mean log10(BER)"); plt.title("log10(BER) vs amplitude (per SNR)")
+            save_fig2(os.path.join(OUT_DIR, "ber_vs_amp_per_snr_log10.png"))
 
         # 5) Heatmap (f1,f2) 按相位差分层
         if all(c in df.columns for c in ["f1", "f2", "BER", "phi1", "phi2"]):
@@ -572,13 +601,16 @@ def main():
                 sub = mean_fmap[mean_fmap['phi_diff_bin']==pbin]
                 if len(sub)==0: continue
                 piv = sub.pivot(index='f2', columns='f1', values='BER').sort_index().sort_index(axis=1)
+                # 转成对数 BER
+                small = 1e-12
+                piv_log = np.log10(np.clip(piv.values, small, 1.0))
                 plt.figure(figsize=(7,6))
-                im = plt.imshow(piv.values, aspect='auto', origin='lower',
+                im = plt.imshow(piv_log, aspect='auto', origin='lower',
                                 extent=[piv.columns.min(), piv.columns.max(),
                                         piv.index.min(), piv.index.max()])
-                plt.colorbar(im, label='Mean BER'); plt.xlabel('f1 (Hz)'); plt.ylabel('f2 (Hz)')
-                deg = int(np.degrees(pbin)); plt.title(f'BER Heatmap | phi_diff={pbin:.2f} rad ({deg}°)')
-                save_fig2(os.path.join(OUT_DIR, f"heatmap_f1f2_phidiff_{pbin:.2f}rad.png"))
+                plt.colorbar(im, label='log10(Mean BER)'); plt.xlabel('f1 (Hz)'); plt.ylabel('f2 (Hz)')
+                deg = int(np.degrees(pbin)); plt.title(f'log10(BER) Heatmap | phi_diff={pbin:.2f} rad ({deg}°)')
+                save_fig2(os.path.join(OUT_DIR, f"heatmap_f1f2_phidiff_{pbin:.2f}rad_log10.png"))
 
         # 6) BER vs delta = f2 - f1（分相位差）
         if all(c in df.columns for c in ["f1", "f2", "phi1", "phi2", "BER"]):
@@ -592,30 +624,38 @@ def main():
                 return float(int(np.floor(wrap_2pi(x)/step + 0.5)) % 8) * step
             plot_df['phi_bin']  = plot_df['phi_diff'].apply(bin_phi_diff2)
 
+            small = 1e-12
             agg = (plot_df
                    .groupby(['phi_bin','delta_q'], as_index=False)
-                   .agg(BER_mean=('BER','mean'),
-                        BER_std =('BER','std'),
-                        N=('BER','count')))
-            agg['BER_sem'] = agg['BER_std'] / np.sqrt(agg['N'].clip(lower=1))
+                   .agg(N=('BER','count'),
+                        mean_log10_ber=('BER', lambda x: np.mean(np.log10(np.clip(x, small, 1.0)))),
+                        sem_log10_ber = ('BER', lambda x: np.std(np.log10(np.clip(x, small, 1.0))) / np.sqrt(max(1, len(x))))) )
 
             plt.figure(figsize=(9,5))
             for pbin in sorted([v for v in agg['phi_bin'].dropna().unique()]):
                 sub = agg[agg['phi_bin']==pbin].sort_values('delta_q')
                 if len(sub)==0: continue
-                plt.plot(sub['delta_q'], sub['BER_mean'], marker='o',
+                plt.plot(sub['delta_q'], sub['mean_log10_ber'], marker='o',
                          label=f'phi_diff={pbin:.2f} rad ({int(np.degrees(pbin))}°)')
-                y = sub['BER_mean'].values
-                e = sub['BER_sem'].fillna(0).values
+                y = sub['mean_log10_ber'].values
+                e = sub['sem_log10_ber'].fillna(0).values
                 plt.fill_between(sub['delta_q'].values, y-e, y+e, alpha=0.15)
             plt.axvline(0, color='k', lw=0.8)
             plt.grid(True); plt.legend(ncol=2)
             plt.xlabel('delta = f2 - f1 (Hz)')
-            plt.ylabel('Mean BER ± SEM')
-            plt.title('BER vs delta CFO (grouped by phase diff, mean ± SEM)')
+            plt.ylabel('mean log10(BER) ± SEM(log10)')
+            plt.title('log10(BER) vs delta CFO (grouped by phase diff, mean ± SEM)')
             plt.tight_layout()
             plt.savefig(os.path.join(OUT_DIR, "ber_vs_delta_grouped.png"), dpi=150)
             plt.close()
+
+        # 输出所有幅度比对应的平均 BER（线性 BER），并保存为 CSV
+        if 'amp' in df.columns and 'BER' in df.columns and len(df):
+            mean_by_amp = df.groupby('amp', as_index=True)['BER'].mean().sort_index()
+            out_amp_csv = os.path.join(OUT_DIR, 'mean_ber_per_amp.csv')
+            mean_by_amp.to_csv(out_amp_csv, header=['mean_BER'])
+            print(f"Saved mean BER per amp to: {out_amp_csv}")
+            print(mean_by_amp)
 
         print("All visualizations saved to:", OUT_DIR)
 
@@ -623,3 +663,26 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+def per_user_snr_from_mix(snr_total_db, amp_ratio_a):
+    # amp_ratio_a = |s2| / |s1| (线性)
+    r = float(amp_ratio_a) ** 2
+    snr_total_lin = 10 ** (snr_total_db / 10.0)
+    snr1_lin = snr_total_lin * 1.0 / (1.0 + r)
+    snr2_lin = snr_total_lin * r / (1.0 + r)
+    return 10*np.log10(snr1_lin), 10*np.log10(snr2_lin)
+
+def snr_to_ebn0(snr_db, sps=8, bits_per_sym=2):
+    return snr_db + 10.0 * np.log10(float(sps) / float(bits_per_sym))
+
+# 示例
+snr_total_db = 18.0
+a = 0.5  # s2 振幅只有 s1 的一半
+snr1_db, snr2_db = per_user_snr_from_mix(snr_total_db, a)
+ebn0_1_db = snr_to_ebn0(snr1_db, sps=8, bits_per_sym=2)
+ebn0_2_db = snr_to_ebn0(snr2_db, sps=8, bits_per_sym=2)
+
+print("Total SNR(dB):", snr_total_db)
+print("amp ratio a:", a)
+print("SNR1(dB):", snr1_db, "SNR2(dB):", snr2_db)
+print("Eb/N0_1(dB):", ebn0_1_db, "Eb/N0_2(dB):", ebn0_2_db)

@@ -8,11 +8,13 @@ import math
 from scipy.optimize import curve_fit
 plt.rcParams['font.sans-serif'] = ['Noto Sans CJK JP']
 plt.rcParams['axes.unicode_minus'] = False
-
 # 参数设置
 path = '/nas/datasets/LYX/PCMA/QPSK_16/1050/'
 filename = 'splited_data.dat'
+
 file = path + filename
+file = '/nas/datasets/yixin/PCMA/sim_data/splited_data_qpsk_1000x3072.pth'
+
 fs = 12e6  # 采样频率
 sps = 8
 
