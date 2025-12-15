@@ -36,6 +36,7 @@ parser.add_argument(
     ],
     help="选择生成模式"
 )
+
 parser.add_argument(
     "--train_profile",
     type=str,
@@ -45,6 +46,7 @@ parser.add_argument(
 )
 parser.add_argument("--test_repeats", type=int, default=5,
                     help="测试集中每个网格点重复的样本数（至少1个）")
+
 parser.add_argument(
     "--auto_test_repeats",
     action="store_true",
@@ -53,20 +55,24 @@ parser.add_argument(
         "；对 test_*_8psk / test_snr_amp / test_cfo_phase / test_delay 有效。"
     ),
 )
+
 parser.add_argument(
     "--target_ber",
     type=float,
     default=1e-4,
     help="用于 --auto_test_repeats 的目标 BER（默认 1e-4）",
 )
+
 parser.add_argument(
     "--min_expected_errors",
     type=int,
     default=20,
     help="用于 --auto_test_repeats：每个网格点期望的最少错误数（默认 20 => 总比特数≈20/BER）",
 )
+
 parser.add_argument("--shard_size", type=int, default=10000,
                     help="train 模式下每个分片包含的样本数（默认 10000）")
+
 parser.add_argument(
     "--train_sizes",
     type=str,
@@ -74,11 +80,13 @@ parser.add_argument(
     help='仅用于 --mode=train。可选："auto"（默认，使用预设列表），'
          '或逗号分隔的数字/带k：如 "5k,10k,50k" 或 "5000,10000,50000"'
 )
+
 parser.add_argument(
     "--save_complex64",
     action="store_true",
     help="保存前将 complex 数据转换为 complex64（节省约一半空间）"
 )
+
 parser.add_argument(
     "--modulation_list",
     type=str,
