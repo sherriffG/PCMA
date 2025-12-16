@@ -185,6 +185,7 @@ class StreamSignalDatasetPlan(IterableDataset):
         seed: int = 2025,
         dist_rank: int = 0,
         dist_world_size: int = 1,
+        max_samples_for_memory_load: int = 50000,  # 如果总样本数小于此值，直接加载到内存
     ):
         super().__init__()
         self.plan_all = list(plan)
@@ -193,6 +194,7 @@ class StreamSignalDatasetPlan(IterableDataset):
         self.base_seed = seed
         self.dist_rank = dist_rank
         self.dist_world_size = dist_world_size
+        self.max_samples_for_memory_load = max_samples_for_memory_load
         
         # ★★★ 修复：按样本分配，而不是按分片文件分配
         # 将所有样本索引收集起来，然后按 rank 分配
@@ -211,6 +213,24 @@ class StreamSignalDatasetPlan(IterableDataset):
             rank_plan_dict[path].append(idx)
         
         self.plan = [{'path': path, 'indices': indices} for path, indices in rank_plan_dict.items()]
+        
+        # 检查是否应该使用内存加载模式
+        total_samples = len(all_samples)
+        self.use_memory_load = total_samples <= max_samples_for_memory_load
+        
+        if self.use_memory_load:
+            # 一次性加载所有数据到内存
+            self.memory_data = {}
+            unique_paths = set(item['path'] for item in self.plan_all)
+            rank = get_rank()
+            for path in unique_paths:
+                if rank == 0:
+                    print(f"[Data] 小数据集模式：正在加载 {path} 到内存...")
+                self.memory_data[path] = torch.load(path, map_location='cpu')
+            if rank == 0:
+                print(f"[Data] 小数据集模式：已加载 {len(unique_paths)} 个文件到内存，总样本数: {total_samples}")
+        else:
+            self.memory_data = None
 
     def _iter_one_epoch(self, worker_info: Optional[torch.utils.data.get_worker_info]) -> Iterator[Dict[str, torch.Tensor]]:
         rng = random.Random(self.base_seed + (0 if worker_info is None else worker_info.id))
@@ -229,10 +249,19 @@ class StreamSignalDatasetPlan(IterableDataset):
             if self.shuffle_within_shard:
                 local_rng = random.Random(self.base_seed ^ (j + 1))
                 local_rng.shuffle(indices)
-            entries = torch.load(shard_path)
+            
+            # 如果使用内存加载模式，从内存中读取；否则从磁盘加载
+            if self.use_memory_load:
+                entries = self.memory_data[shard_path]
+            else:
+                entries = torch.load(shard_path)
+            
             for idx in indices:
                 yield _entry_to_sample(entries[idx])
-            del entries
+            
+            # 只有在非内存模式下才删除（内存模式下需要保留）
+            if not self.use_memory_load:
+                del entries
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         worker_info = torch.utils.data.get_worker_info()
@@ -562,6 +591,9 @@ def train_epoch(model, train_loader, optimizer, scheduler, scaler, ema, device,
             nan_inf_count += 1
             if rank == 0:
                 print(f"[Train][WARN] NaN/Inf loss encountered at step {step_in_epoch}, count={nan_inf_count}/{max_nan_inf_count}")
+            # 如果loss是NaN/Inf，将其替换为一个较小的固定值，避免反向传播时出现问题
+            # 使用max_grad_norm的平方作为替代值，确保梯度裁剪能正常工作
+            loss = torch.tensor(max_grad_norm ** 2, device=loss.device, dtype=loss.dtype) / max(1, accum_steps)
             # 即使loss是NaN/Inf，也继续反向传播（会被梯度裁剪处理）
             # 但跳过累加到total_loss
 
@@ -597,13 +629,27 @@ def train_epoch(model, train_loader, optimizer, scheduler, scaler, ema, device,
                 if rank == 0:
                     print(f"[Train][WARN] Found NaN/Inf in gradients, cleaned. Count={nan_inf_count}/{max_nan_inf_count}")
 
+            # ★★★ 自适应梯度裁剪：如果检测到NaN/Inf，使用更激进的裁剪阈值
+            # 如果当前batch有NaN/Inf问题，使用更小的裁剪阈值
+            adaptive_grad_norm = max_grad_norm
+            if found_bad_grad or loss_is_bad:
+                # 当检测到NaN/Inf时，使用更激进的梯度裁剪（原阈值的50%）
+                adaptive_grad_norm = max_grad_norm * 0.5
+                if rank == 0 and step_in_epoch % 10 == 0:  # 每10步打印一次，避免刷屏
+                    print(f"[Train][WARN] Using aggressive grad clipping: {adaptive_grad_norm:.4f} (normal: {max_grad_norm:.4f})")
+            
             # ★★★ 总是执行梯度裁剪，无论是否有NaN/Inf（已清理）
             if step_in_epoch == accum_steps:
                 print(f"[Rank {rank}] 执行 clip_grad_norm_...")
             try:
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), adaptive_grad_norm)
                 if step_in_epoch == accum_steps:
                     print(f"[Rank {rank}] clip_grad_norm_ 完成，grad_norm={grad_norm.item():.6f}")
+                
+                # 如果梯度范数过大，记录警告
+                if grad_norm > max_grad_norm * 2.0 and rank == 0 and step_in_epoch % 10 == 0:
+                    print(f"[Train][WARN] Large gradient norm detected: {grad_norm.item():.4f} (threshold: {max_grad_norm:.4f})")
+                    
             except Exception as e:
                 if rank == 0:
                     print(f"[Train][ERROR] clip_grad_norm_ failed: {e}, zeroing grads")
@@ -650,19 +696,16 @@ def train_epoch(model, train_loader, optimizer, scheduler, scaler, ema, device,
             if rank == 0:
                 pbar.update(1)
             
-            # 检查NaN/Inf计数是否超过阈值
+            # 检查NaN/Inf计数是否超过阈值（仅发送邮件，不停止训练）
             if nan_inf_count >= max_nan_inf_count:
                 if rank == 0:
-                    print(f"[Train][ERROR] NaN/Inf count ({nan_inf_count}) exceeds threshold ({max_nan_inf_count}), stopping training")
-                # # 同步所有进程
-                # if is_dist_avail_and_initialized():
-                #     torch.distributed.barrier()
-                # raise RuntimeError(f"NaN/Inf count ({nan_inf_count}) exceeds threshold ({max_nan_inf_count})")
+                    print(f"[Train][WARN] NaN/Inf count ({nan_inf_count}) exceeds threshold ({max_nan_inf_count}), continuing with aggressive gradient clipping")
+                    # 发送邮件通知，但不停止训练
+                    # send_email(text=f"Epoch训练中NaN/Inf计数超过阈值: {nan_inf_count}/{max_nan_inf_count}，已启用更激进的梯度裁剪，训练继续")
 
         # 只累加有效的loss（非NaN/Inf）
         if not loss_is_bad:
             total_loss += loss.item()
-
     pbar.close()
     
     # 同步NaN/Inf计数到所有进程
@@ -815,7 +858,7 @@ def main():
     # 所有输出保存到 /nas/datasets/yixin/PCMA/src
     base_output_dir = '/nas/datasets/yixin/PCMA/src'
     save_pic = os.path.join(base_output_dir, 'loss', f'loss_SigSep_{mode_name}.png')
-    save_dir = os.path.join(base_output_dir, 'check_points', 'all')
+    save_dir = os.path.join(base_output_dir, 'check_points')
 
     rank = get_rank(); world = get_world_size()
     
@@ -931,15 +974,14 @@ def main():
                         alpha_time=alpha_t, beta_csi=beta_c, max_grad_norm=args.max_grad_norm,
                         max_nan_inf_count=args.max_nan_inf_count)
         
-        # 检查NaN/Inf计数（train_epoch内部已检查，这里再次确认）
+        # 检查NaN/Inf计数（train_epoch内部已处理，这里只记录日志）
         if nan_inf_count >= args.max_nan_inf_count:
             if rank == 0:
                 print(f"--------------------------------")
-                print(f"nan_inf_count: {nan_inf_count}")
-                # print(f"[Train][ERROR] Training stopped due to excessive NaN/Inf count: {nan_inf_count}/{args.max_nan_inf_count}")
+                print(f"nan_inf_count: {nan_inf_count}/{args.max_nan_inf_count}")
+                print(f"[Train][WARN] NaN/Inf计数超过阈值，但训练继续（已启用更激进的梯度裁剪）")
                 print(f"--------------------------------")
-                send_email(text=f"Excessive NaN/Inf count: {nan_inf_count}/{args.max_nan_inf_count}")
-            break
+            # 不停止训练，继续执行
 
         vl = validate_epoch(model, val_loader, device, total_batches=val_batches, rank=rank,
                     alpha_time=alpha_t, beta_csi=beta_c,

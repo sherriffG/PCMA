@@ -1,33 +1,27 @@
 # PCMA
 
-# 模型训练部分
-load_dataset.py 加载数据
+PCMA (Paired Carrier Multiple Access) 信号分离项目
 
-model_complex.py 定义模型
+## 模型训练部分
 
-generate_sim_dataset.py 建立仿真数据
+- **model_complex.py** - 定义SignalSeparator模型架构，包含编码器、解码器和分离网络
+- **generate_sim_dataset.py** - 生成仿真数据集，创建混合信号用于模型训练
+- **torch_signal_sim.py** - 纯PyTorch版本的信号生成模块，支持可微分的参数，用于训练过程中的数据生成
+- **train_SignalSeparator.py** - 模型训练主程序，支持分布式训练
+- **train_SignalSeparator_v2.py** - 改进版训练脚本，添加了噪声一致性损失和EVM损失
+- **test_sim_SignalSeparator.py** - 测试仿真模型性能，评估SER、EVM等指标
+- **utils.py** - 工具函数，包含符号聚类、SER计算等辅助功能
+- **example.py** - 最小示例代码，演示完整的信号生成、模型推理、SER评估和信号重建流程
 
-torch_signal_sim.py 纯torch版本的生成数据，参数可微
+## 数据分析部分
 
-train_SignalSeparator.py 训练
+- **compensation.py** - Costas环补偿合理性分析，用于相位补偿
+- **estimate_h.py** - 估计成型滤波器（RRC滤波器）参数
+- **split_data.py** - 数据裁剪和分割工具
+- **utils_compensation.py** - 补偿相关的工具函数
+- **viz_metrics.py** - 可视化评估指标（SER、EVM等），生成统计图表
 
-train_SignalSeparator_v2.py 添加噪声一致性损失和EVM损失
+## 数据路径
 
-utiles.py 依赖函数
-
-
-
-# 数据分析部分
-compensation.py costas环补偿合理性分析
-
-estimate_h.py 估计成型滤波器
-
-split_data.py 裁剪数据
-
-utils_compensation.py 依赖函数
-
-
-采集数据的原始数据存放在 '/nas/datasets/LYX/PCMA'下，保存格式为I、Q、I、Q…… 每个数据点为一个short
-
-处理后的数据放在 '/nas/datasets/yixin/PCMA/sim_data' 下
-
+- 采集数据的原始数据存放在 `/nas/datasets/LYX/PCMA` 下，保存格式为I、Q、I、Q…… 每个数据点为一个short
+- 处理后的数据放在 `/nas/datasets/yixin/PCMA/sim_data` 下

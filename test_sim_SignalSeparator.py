@@ -135,6 +135,76 @@ def demod_by_mod(symbols: np.ndarray, modulation: str) -> np.ndarray:
         # 默认当 QPSK 处理，避免崩溃
         return qpsk_demod(symbols)
 
+
+# ==================== 调制函数（用于 SER 计算）====================
+def qpsk_mod(bits: np.ndarray) -> np.ndarray:
+    """QPSK Gray 映射，与原实现兼容。"""
+    symbols = []
+    for i in range(0, len(bits), 2):
+        b1, b2 = bits[i], bits[i + 1]
+        if b1 == 0 and b2 == 0:
+            symbols.append(1 + 1j)
+        elif b1 == 0 and b2 == 1:
+            symbols.append(-1 + 1j)
+        elif b1 == 1 and b2 == 0:
+            symbols.append(1 - 1j)
+        else:
+            symbols.append(-1 - 1j)
+    return np.array(symbols, dtype=complex) / np.sqrt(2)
+
+
+def psk8_mod(bits: np.ndarray) -> np.ndarray:
+    """
+    8PSK 映射：
+    - 每 3bit -> 一个符号，采用自然编码：k = b2*4 + b1*2 + b0
+    - 符号 = exp(j*(2πk/8))，整体为 8 点均匀分布在单位圆上。
+    """
+    assert len(bits) % 3 == 0
+    bits = bits.reshape(-1, 3)
+    idx = bits[:, 0] * 4 + bits[:, 1] * 2 + bits[:, 2]
+    phase = 2 * np.pi * idx / 8.0
+    symbols = np.exp(1j * phase)
+    return symbols.astype(complex)
+
+
+def qam16_mod(bits: np.ndarray) -> np.ndarray:
+    """
+    16QAM 映射：
+    - 每 4bit -> 2bit(I) + 2bit(Q)
+    - 采用 Gray 编码 + 方阵 [-3,-1,1,3]，然后整体归一化到平均能量=1。
+    """
+    assert len(bits) % 4 == 0
+    bits = bits.reshape(-1, 4)
+    # Gray 2bit -> level 映射
+    def gray2level(b0, b1):
+        if b0 == 0 and b1 == 0:
+            return -3
+        elif b0 == 0 and b1 == 1:
+            return -1
+        elif b0 == 1 and b1 == 1:
+            return 1
+        else:  # b0==1 and b1==0
+            return 3
+
+    I = np.array([gray2level(b[0], b[1]) for b in bits], dtype=float)
+    Q = np.array([gray2level(b[2], b[3]) for b in bits], dtype=float)
+    symbols = I + 1j * Q
+    symbols = symbols / np.sqrt(10.0)  # 平均能量归一化
+    return symbols.astype(complex)
+
+
+def modulate(bits: np.ndarray, modulation: str) -> np.ndarray:
+    """统一入口：根据 modulation 调用对应的调制函数。"""
+    modulation = modulation.upper()
+    if modulation == "QPSK":
+        return qpsk_mod(bits)
+    elif modulation == "8PSK":
+        return psk8_mod(bits)
+    elif modulation == "16QAM":
+        return qam16_mod(bits)
+    else:
+        return qpsk_mod(bits)
+
 # ==================== 其它工具 ====================
 def align_phase(ref, est):
     c = np.mean(ref * np.conj(est) + 1e-12)
@@ -487,19 +557,44 @@ def main():
                 b1_hat = demod_by_mod(ps1_aligned, mod1)
                 b2_hat = demod_by_mod(ps2_aligned, mod2)
 
+                # 计算 SER：按符号分组比较比特组合
+                # 确保比特序列长度是 bps 的倍数
                 Lb1 = min(len(b1_hat), len(b1_ref))
                 Lb2 = min(len(b2_hat), len(b2_ref))
-
-                ber1 = float(np.mean(b1_hat[:Lb1] != b1_ref[:Lb1])) if Lb1 > 0 else 1.0
-                ber2 = float(np.mean(b2_hat[:Lb2] != b2_ref[:Lb2])) if Lb2 > 0 else 1.0
-                ber  = 0.5 * (ber1 + ber2)
+                Lb1 = (Lb1 // bps1) * bps1  # 向下取整到符号边界
+                Lb2 = (Lb2 // bps2) * bps2
+                
+                if Lb1 > 0 and Lb2 > 0:
+                    # 将比特序列按符号分组（每 bps 个比特为一个符号）
+                    # 比较每个符号对应的比特组合是否相同
+                    n_syms1 = Lb1 // bps1
+                    n_syms2 = Lb2 // bps2
+                    
+                    # 将比特序列重塑为 (n_syms, bps) 形状
+                    b1_ref_syms = b1_ref[:Lb1].reshape(n_syms1, bps1)
+                    b1_hat_syms = b1_hat[:Lb1].reshape(n_syms1, bps1)
+                    b2_ref_syms = b2_ref[:Lb2].reshape(n_syms2, bps2)
+                    b2_hat_syms = b2_hat[:Lb2].reshape(n_syms2, bps2)
+                    
+                    # 比较每个符号的比特组合是否相同
+                    # 使用 np.any(axis=1) 来检查每个符号的比特是否不同
+                    sym_errors1 = np.any(b1_ref_syms != b1_hat_syms, axis=1)
+                    sym_errors2 = np.any(b2_ref_syms != b2_hat_syms, axis=1)
+                    
+                    ser1 = float(np.mean(sym_errors1)) if n_syms1 > 0 else 1.0
+                    ser2 = float(np.mean(sym_errors2)) if n_syms2 > 0 else 1.0
+                else:
+                    ser1 = 1.0
+                    ser2 = 1.0
+                
+                ser = 0.5 * (ser1 + ser2)
 
                 phi_diff = float(wrap_2pi(phi2 - phi1))
 
                 results.append({
                     'loss1': float(loss1[i]),
                     'loss2': float(loss2[i]),
-                    'BER1': ber1, 'BER2': ber2, 'BER': ber,
+                    'SER1': ser1, 'SER2': ser2, 'SER': ser,
                     'snr': meta.get('snr'),
                     'amp': meta.get('amp'),
                     'f1': meta.get('f_off1'),
@@ -539,10 +634,10 @@ def main():
         final_csv = os.path.join(args.out_dir, "metrics_all.csv")
         df.to_csv(final_csv, index=False)
         print(f"[Rank0] merged metrics saved to: {final_csv}")
-        if "BER" in df.columns and len(df):
-            print("Overall mean BER:", df["BER"].mean())
+        if "SER" in df.columns and len(df):
+            print("Overall mean SER:", df["SER"].mean())
         else:
-            print("Overall mean BER: N/A")
+            print("Overall mean SER: N/A")
 
     cleanup_ddp()
 

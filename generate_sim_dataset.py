@@ -133,7 +133,8 @@ def get_train_hyper_ranges(profile: str):
 
     if profile == "robust":
         # 你的设定：统一大范围
-        snr_range = (8.0, 22.0)      # dB
+        # 原始 SNR 范围为 (8.0, 22.0) dB，这里根据需求提升到 (14.0, 20.0) dB
+        snr_range = (14.0, 20.0)     # dB
         freq_range = (0.0, 200.0)    # Hz（之后随机乘 ±1）
         amp_range = (0.2, 0.9)       # a = |s2|/|s1|
     else:
@@ -187,7 +188,9 @@ SNR_GRID_COMPARISON = np.array([10., 12., 14., 16., 18., 20., 22.])  # 7个SNR�
 AMP_GRID_COMPARISON = np.array([0.3, 0.5, 0.7, 0.9])  # 4个AMP点
 
 # ============= 数据集保存目录 =============
-save_dir = '/nas/datasets/yixin/PCMA/sim_data'
+# 原始路径：'/nas/datasets/yixin/PCMA/sim_data'
+# 根据当前需求，将新生成的数据（尤其是 8PSK 相关训练集）保存到单独目录，便于管理
+save_dir = '/nas/datasets/yixin/PCMA/8PSK'
 os.makedirs(save_dir, exist_ok=True)
 
 # ============= 预设训练规模列表（多种 N） =============
@@ -550,6 +553,8 @@ def gen_one_train_dataset(N_total, SHARD_SIZE, train_profile: str, mod_list=None
         rx = awgn_with_seed(rx_clean, snr_db_k, seed=None)
 
         # -------- 6) 记录样本 --------
+        # 之前为了节省空间，训练集中的 bits1/bits2 默认置为 -1。
+        # 现在按需求改为保存真实比特串，便于后续做 BER/SER 分析和可微仿真对齐。
         new_entry = {
             'mixsignal': rx,
             'rfsignal1': tx1,
@@ -565,8 +570,8 @@ def gen_one_train_dataset(N_total, SHARD_SIZE, train_profile: str, mod_list=None
                 f'mod1={mod1}',
                 f'mod2={mod2}',
             ),
-            'bits1': -1,
-            'bits2': -1,
+            'bits1': bits1,
+            'bits2': bits2,
             'origin_len': 1
         }
         shard_entries.append(new_entry)

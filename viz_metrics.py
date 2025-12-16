@@ -18,24 +18,24 @@ def viz_orig(df: pd.DataFrame, out_dir: str):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         plt.tight_layout(); plt.savefig(path, dpi=dpi); plt.close()
 
-    # 1) BER 直方 + CDF（survival）
-    if "BER" in df.columns and len(df):
+    # 1) SER 直方 + CDF（survival）
+    if "SER" in df.columns and len(df):
         small = 1e-12
-        ber_vals = df["BER"].clip(lower=small, upper=1.0)
+        ser_vals = df["SER"].clip(lower=small, upper=1.0)
 
         plt.figure(figsize=(6,4))
-        plt.hist(ber_vals, bins=40, density=True, alpha=0.8)
+        plt.hist(ser_vals, bins=40, density=True, alpha=0.8)
         plt.yscale('log')
-        plt.xlabel("BER"); plt.ylabel("Density (log)"); plt.title("BER Histogram (log y)")
-        save_fig2(os.path.join(out_dir, "ber_hist_semi.png"))
+        plt.xlabel("SER"); plt.ylabel("Density (log)"); plt.title("SER Histogram (log y)")
+        save_fig2(os.path.join(out_dir, "ser_hist_semi.png"))
 
         plt.figure(figsize=(6,4))
-        ber_sorted = np.sort(ber_vals.values)
-        p = np.linspace(0,1,len(ber_sorted))
+        ser_sorted = np.sort(ser_vals.values)
+        p = np.linspace(0,1,len(ser_sorted))
         survival = 1.0 - p
-        plt.semilogy(ber_sorted, survival)
-        plt.xlabel("BER"); plt.ylabel("Survival = 1-CDF (log)"); plt.title("BER Survival (semilogy)")
-        save_fig2(os.path.join(out_dir, "ber_survival_semi.png"))
+        plt.semilogy(ser_sorted, survival)
+        plt.xlabel("SER"); plt.ylabel("Survival = 1-CDF (log)"); plt.title("SER Survival (semilogy)")
+        save_fig2(os.path.join(out_dir, "ser_survival_semi.png"))
 
     # 2) EVM CDF（分 SNR）
     def plot_evm_cdf_by_snr(col, name):
@@ -55,39 +55,39 @@ def viz_orig(df: pd.DataFrame, out_dir: str):
     plot_evm_cdf_by_snr('evm1', 'EVM1')
     plot_evm_cdf_by_snr('evm2', 'EVM2')
 
-    # 3) BER vs SNR（per amp）
-    if all(c in df.columns for c in ["amp", "snr", "BER"]):
+    # 3) SER vs SNR（per amp）
+    if all(c in df.columns for c in ["amp", "snr", "SER"]):
         plt.figure(figsize=(8,5))
         for a in sorted([v for v in df['amp'].dropna().unique()]):
-            sub_raw = df[df['amp']==a].dropna(subset=['BER','snr'])
+            sub_raw = df[df['amp']==a].dropna(subset=['SER','snr'])
             if len(sub_raw)==0: continue
             sub = (sub_raw.groupby('snr', as_index=False)
-                   .agg(mean_BER=('BER', 'mean'))
+                   .agg(mean_SER=('SER', 'mean'))
                    .sort_values('snr'))
-            plt.semilogy(sub['snr'], sub['mean_BER'], marker='o', label=f"amp={a:.2f}")
+            plt.semilogy(sub['snr'], sub['mean_SER'], marker='o', label=f"amp={a:.2f}")
         plt.grid(True); plt.legend(ncol=2)
-        plt.xlabel("SNR (dB)"); plt.ylabel("Mean BER (log y)")
-        plt.title("BER vs SNR (per amplitude, semilogy)")
-        save_fig2(os.path.join(out_dir, "ber_vs_snr_per_amp_semi.png"))
+        plt.xlabel("SNR (dB)"); plt.ylabel("Mean SER (log y)")
+        plt.title("SER vs SNR (per amplitude, semilogy)")
+        save_fig2(os.path.join(out_dir, "ser_vs_snr_per_amp_semi.png"))
 
-    # 4) BER vs amp（per SNR）
-    if all(c in df.columns for c in ["amp", "snr", "BER"]):
+    # 4) SER vs amp（per SNR）
+    if all(c in df.columns for c in ["amp", "snr", "SER"]):
         plt.figure(figsize=(8,5))
         for s in sorted([v for v in df['snr'].dropna().unique()]):
-            sub_raw = df[df['snr']==s].dropna(subset=['BER','amp'])
+            sub_raw = df[df['snr']==s].dropna(subset=['SER','amp'])
             if len(sub_raw)==0: continue
             sub = (sub_raw.groupby('amp', as_index=False)
-                   .agg(mean_BER=('BER', 'mean'))
+                   .agg(mean_SER=('SER', 'mean'))
                    .sort_values('amp'))
-            plt.semilogy(sub['amp'], sub['mean_BER'], marker='o', label=f"SNR={s:g}dB")
+            plt.semilogy(sub['amp'], sub['mean_SER'], marker='o', label=f"SNR={s:g}dB")
         plt.grid(True); plt.legend(ncol=2)
         plt.xlabel("Amplitude ratio (a=|s2|/|s1|)")
-        plt.ylabel("Mean BER (log y)")
-        plt.title("BER vs amplitude (per SNR, semilogy)")
-        save_fig2(os.path.join(out_dir, "ber_vs_amp_per_snr_semi.png"))
+        plt.ylabel("Mean SER (log y)")
+        plt.title("SER vs amplitude (per SNR, semilogy)")
+        save_fig2(os.path.join(out_dir, "ser_vs_amp_per_snr_semi.png"))
 
     # 5) (f1,f2) 热力图按相位差
-    if all(c in df.columns for c in ["f1", "f2", "BER", "phi1", "phi2"]):
+    if all(c in df.columns for c in ["f1", "f2", "SER", "phi1", "phi2"]):
         def bin_phi_diff(x):
             if x is None or (isinstance(x, float) and np.isnan(x)): return None
             step = 2*np.pi/8
@@ -95,29 +95,29 @@ def viz_orig(df: pd.DataFrame, out_dir: str):
         df2 = df.copy()
         df2['phi_diff'] = wrap_2pi(df2['phi2'] - df2['phi1'])
         df2['phi_diff_bin'] = df2['phi_diff'].apply(bin_phi_diff)
-        mean_fmap = (df2.dropna(subset=['f1','f2','BER'])
-                     .groupby(['phi_diff_bin','f1','f2'], as_index=False)['BER'].mean())
+        mean_fmap = (df2.dropna(subset=['f1','f2','SER'])
+                     .groupby(['phi_diff_bin','f1','f2'], as_index=False)['SER'].mean())
         phi_bins = sorted([v for v in mean_fmap['phi_diff_bin'].dropna().unique()])
 
         for pbin in phi_bins:
             sub = mean_fmap[mean_fmap['phi_diff_bin']==pbin]
             if len(sub)==0: continue
-            piv = sub.pivot(index='f2', columns='f1', values='BER').sort_index().sort_index(axis=1)
+            piv = sub.pivot(index='f2', columns='f1', values='SER').sort_index().sort_index(axis=1)
             small = 1e-12
             piv_log = np.log10(np.clip(piv.values, small, 1.0))
             plt.figure(figsize=(7,6))
             im = plt.imshow(piv_log, aspect='auto', origin='lower',
                             extent=[piv.columns.min(), piv.columns.max(),
                                     piv.index.min(), piv.index.max()])
-            plt.colorbar(im, label='log10(Mean BER)')
+            plt.colorbar(im, label='log10(Mean SER)')
             plt.xlabel('f1 (Hz)'); plt.ylabel('f2 (Hz)')
             deg = int(np.degrees(pbin))
-            plt.title(f'log10(BER) Heatmap | phi_diff={pbin:.2f} rad ({deg}°)')
+            plt.title(f'log10(SER) Heatmap | phi_diff={pbin:.2f} rad ({deg}°)')
             save_fig2(os.path.join(out_dir, f"heatmap_f1f2_phidiff_{pbin:.2f}rad_log10.png"))
 
-    # 6) BER vs delta CFO（分相位差）
-    if all(c in df.columns for c in ["f1", "f2", "phi1", "phi2", "BER"]):
-        plot_df = df.dropna(subset=['f1','f2','phi1','phi2','BER']).copy()
+    # 6) SER vs delta CFO（分相位差）
+    if all(c in df.columns for c in ["f1", "f2", "phi1", "phi2", "SER"]):
+        plot_df = df.dropna(subset=['f1','f2','phi1','phi2','SER']).copy()
         plot_df['delta'] = plot_df['f2'] - plot_df['f1']
         delta_step = 1.0
         plot_df['delta_q'] = np.round(plot_df['delta'] / delta_step) * delta_step
@@ -129,17 +129,17 @@ def viz_orig(df: pd.DataFrame, out_dir: str):
 
         agg = (plot_df
                .groupby(['phi_bin','delta_q'], as_index=False)
-               .agg(N=('BER','count'),
-                    mean_BER=('BER', 'mean'),
-                    sem_BER=('BER', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
+               .agg(N=('SER','count'),
+                    mean_SER=('SER', 'mean'),
+                    sem_SER=('SER', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
 
         plt.figure(figsize=(9,5))
         for pbin in sorted([v for v in agg['phi_bin'].dropna().unique()]):
             sub = agg[agg['phi_bin']==pbin].sort_values('delta_q')
             if len(sub)==0: continue
             xs = sub['delta_q'].values
-            y = sub['mean_BER'].values
-            e = sub['sem_BER'].fillna(0).values
+            y = sub['mean_SER'].values
+            e = sub['sem_SER'].fillna(0).values
             plt.semilogy(xs, y, marker='o',
                          label=f'phi_diff={pbin:.2f} rad ({int(np.degrees(pbin))}°)')
             y_low = np.clip(y - e, 1e-12, 1.0)
@@ -148,17 +148,17 @@ def viz_orig(df: pd.DataFrame, out_dir: str):
         plt.axvline(0, color='k', lw=0.8)
         plt.grid(True); plt.legend(ncol=2)
         plt.xlabel('delta = f2 - f1 (Hz)')
-        plt.ylabel('Mean BER ± SEM (semilogy)')
-        plt.title('BER vs delta CFO (grouped by phase diff, mean ± SEM)')
-        save_fig2(os.path.join(out_dir, "ber_vs_delta_grouped.png"))
+        plt.ylabel('Mean SER ± SEM (semilogy)')
+        plt.title('SER vs delta CFO (grouped by phase diff, mean ± SEM)')
+        save_fig2(os.path.join(out_dir, "ser_vs_delta_grouped.png"))
 
-    # 7) 平均 BER vs amp CSV
-    if 'amp' in df.columns and 'BER' in df.columns and len(df):
-        mean_by_amp = df.groupby('amp', as_index=True)['BER'].mean().sort_index()
-        out_amp_csv = os.path.join(out_dir, 'mean_ber_per_amp.csv')
+    # 7) 平均 SER vs amp CSV
+    if 'amp' in df.columns and 'SER' in df.columns and len(df):
+        mean_by_amp = df.groupby('amp', as_index=True)['SER'].mean().sort_index()
+        out_amp_csv = os.path.join(out_dir, 'mean_ser_per_amp.csv')
         os.makedirs(out_dir, exist_ok=True)
-        mean_by_amp.to_csv(out_amp_csv, header=['mean_BER'])
-        print(f"[orig] Saved mean BER per amp to: {out_amp_csv}")
+        mean_by_amp.to_csv(out_amp_csv, header=['mean_SER'])
+        print(f"[orig] Saved mean SER per amp to: {out_amp_csv}")
         print(mean_by_amp)
 
 
@@ -166,12 +166,12 @@ def viz_orig(df: pd.DataFrame, out_dir: str):
 def viz_snr_amp(df: pd.DataFrame, out_dir: str):
     """
     期望 CSV 至少有：
-      - BER1, BER2, snr, amp, mod1, mod2
+      - SER1, SER2, snr, amp, mod1, mod2
     我们按 mod_pair = (mod1,mod2) 分四组，每组各画：
-      1) BER1 & BER2 vs SNR (per AMP) - 两个子图
-      2) BER1 & BER2 vs AMP (per SNR) - 两个子图
+      1) SER1 & SER2 vs SNR (per AMP) - 两个子图
+      2) SER1 & SER2 vs AMP (per SNR) - 两个子图
     """
-    required = {"BER1", "BER2", "snr", "amp", "mod1", "mod2"}
+    required = {"SER1", "SER2", "snr", "amp", "mod1", "mod2"}
     if not required.issubset(df.columns):
         print("[snr_amp] CSV 缺少必要列，跳过；需要：", required)
         return
@@ -182,86 +182,86 @@ def viz_snr_amp(df: pd.DataFrame, out_dir: str):
         if len(sub_df) == 0: continue
         tag = f"{mod1}_{mod2}"
 
-        # 1) BER1 & BER2 vs SNR（per amp）- 两个子图
+        # 1) SER1 & SER2 vs SNR（per amp）- 两个子图
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
         
-        # 子图1: BER1
+        # 子图1: SER1
         for a in sorted([v for v in sub_df['amp'].dropna().unique()]):
-            sub_raw = sub_df[sub_df['amp']==a].dropna(subset=['BER1','snr'])
+            sub_raw = sub_df[sub_df['amp']==a].dropna(subset=['SER1','snr'])
             if len(sub_raw)==0: continue
             grp = (sub_raw.groupby('snr', as_index=False)
-                   .agg(mean_BER1=('BER1','mean'))
+                   .agg(mean_SER1=('SER1','mean'))
                    .sort_values('snr'))
-            ax1.semilogy(grp['snr'], grp['mean_BER1'], marker='o', label=f"amp={a:.2f}")
+            ax1.semilogy(grp['snr'], grp['mean_SER1'], marker='o', label=f"amp={a:.2f}")
         ax1.grid(True); ax1.legend(ncol=2)
-        ax1.set_xlabel("SNR (dB)"); ax1.set_ylabel("Mean BER1 (log y)")
-        ax1.set_title(f"BER1 vs SNR per AMP | {tag} ({mod1})")
+        ax1.set_xlabel("SNR (dB)"); ax1.set_ylabel("Mean SER1 (log y)")
+        ax1.set_title(f"SER1 vs SNR per AMP | {tag} ({mod1})")
         
-        # 子图2: BER2
+        # 子图2: SER2
         for a in sorted([v for v in sub_df['amp'].dropna().unique()]):
-            sub_raw = sub_df[sub_df['amp']==a].dropna(subset=['BER2','snr'])
+            sub_raw = sub_df[sub_df['amp']==a].dropna(subset=['SER2','snr'])
             if len(sub_raw)==0: continue
             grp = (sub_raw.groupby('snr', as_index=False)
-                   .agg(mean_BER2=('BER2','mean'))
+                   .agg(mean_SER2=('SER2','mean'))
                    .sort_values('snr'))
-            ax2.semilogy(grp['snr'], grp['mean_BER2'], marker='o', label=f"amp={a:.2f}")
+            ax2.semilogy(grp['snr'], grp['mean_SER2'], marker='o', label=f"amp={a:.2f}")
         ax2.grid(True); ax2.legend(ncol=2)
-        ax2.set_xlabel("SNR (dB)"); ax2.set_ylabel("Mean BER2 (log y)")
-        ax2.set_title(f"BER2 vs SNR per AMP | {tag} ({mod2})")
+        ax2.set_xlabel("SNR (dB)"); ax2.set_ylabel("Mean SER2 (log y)")
+        ax2.set_title(f"SER2 vs SNR per AMP | {tag} ({mod2})")
         
         plt.tight_layout()
-        save_fig(os.path.join(out_dir, f"snr_amp_ber_vs_snr_{tag}.png"))
+        save_fig(os.path.join(out_dir, f"snr_amp_ser_vs_snr_{tag}.png"))
 
-        # 2) BER1 & BER2 vs AMP（per SNR）- 两个子图
+        # 2) SER1 & SER2 vs AMP（per SNR）- 两个子图
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
         
-        # 子图1: BER1
+        # 子图1: SER1
         for s in sorted([v for v in sub_df['snr'].dropna().unique()]):
-            sub_raw = sub_df[sub_df['snr']==s].dropna(subset=['BER1','amp'])
+            sub_raw = sub_df[sub_df['snr']==s].dropna(subset=['SER1','amp'])
             if len(sub_raw)==0: continue
             grp = (sub_raw.groupby('amp', as_index=False)
-                   .agg(mean_BER1=('BER1','mean'))
+                   .agg(mean_SER1=('SER1','mean'))
                    .sort_values('amp'))
-            ax1.semilogy(grp['amp'], grp['mean_BER1'], marker='o', label=f"SNR={s:g}dB")
+            ax1.semilogy(grp['amp'], grp['mean_SER1'], marker='o', label=f"SNR={s:g}dB")
         ax1.grid(True); ax1.legend(ncol=2)
         ax1.set_xlabel("Amplitude ratio (a)")
-        ax1.set_ylabel("Mean BER1 (log y)")
-        ax1.set_title(f"BER1 vs AMP per SNR | {tag} ({mod1})")
+        ax1.set_ylabel("Mean SER1 (log y)")
+        ax1.set_title(f"SER1 vs AMP per SNR | {tag} ({mod1})")
         
-        # 子图2: BER2
+        # 子图2: SER2
         for s in sorted([v for v in sub_df['snr'].dropna().unique()]):
-            sub_raw = sub_df[sub_df['snr']==s].dropna(subset=['BER2','amp'])
+            sub_raw = sub_df[sub_df['snr']==s].dropna(subset=['SER2','amp'])
             if len(sub_raw)==0: continue
             grp = (sub_raw.groupby('amp', as_index=False)
-                   .agg(mean_BER2=('BER2','mean'))
+                   .agg(mean_SER2=('SER2','mean'))
                    .sort_values('amp'))
-            ax2.semilogy(grp['amp'], grp['mean_BER2'], marker='o', label=f"SNR={s:g}dB")
+            ax2.semilogy(grp['amp'], grp['mean_SER2'], marker='o', label=f"SNR={s:g}dB")
         ax2.grid(True); ax2.legend(ncol=2)
         ax2.set_xlabel("Amplitude ratio (a)")
-        ax2.set_ylabel("Mean BER2 (log y)")
-        ax2.set_title(f"BER2 vs AMP per SNR | {tag} ({mod2})")
+        ax2.set_ylabel("Mean SER2 (log y)")
+        ax2.set_title(f"SER2 vs AMP per SNR | {tag} ({mod2})")
         
         plt.tight_layout()
-        save_fig(os.path.join(out_dir, f"snr_amp_ber_vs_amp_{tag}.png"))
+        save_fig(os.path.join(out_dir, f"snr_amp_ser_vs_amp_{tag}.png"))
 
 
 # ========== mode=cfo_phase：test_cfo_phase ==========
 def viz_cfo_phase(df: pd.DataFrame, out_dir: str):
     """
     期望 CSV 至少有：
-      - BER1, BER2, f1, f2, phi1, phi2, mod1, mod2
+      - SER1, SER2, f1, f2, phi1, phi2, mod1, mod2
     对 test_cfo_phase 来说：
       - f1 ≈ 0, f2 ∈ CFO_GRID_CFO_PHASE
       - phi1 ≈ 0, phi2 ≈ Δphi
-    图：对每个 mod_pair，画 BER1 & BER2 vs (f2-f1)（横轴），每条曲线一个 Δphi。
-    分成两个子图：BER1 和 BER2。
+    图：对每个 mod_pair，画 SER1 & SER2 vs (f2-f1)（横轴），每条曲线一个 Δphi。
+    分成两个子图：SER1 和 SER2。
     """
-    required = {"BER1", "BER2", "f1", "f2", "phi1", "phi2", "mod1", "mod2"}
+    required = {"SER1", "SER2", "f1", "f2", "phi1", "phi2", "mod1", "mod2"}
     if not required.issubset(df.columns):
         print("[cfo_phase] CSV 缺少必要列，跳过；需要：", required)
         return
 
-    df2 = df.dropna(subset=['f1','f2','phi1','phi2','BER1','BER2','mod1','mod2']).copy()
+    df2 = df.dropna(subset=['f1','f2','phi1','phi2','SER1','SER2','mod1','mod2']).copy()
     df2['delta_cfo'] = df2['f2'] - df2['f1']
     df2['phi_diff'] = wrap_2pi(df2['phi2'] - df2['phi1'])
 
@@ -276,28 +276,28 @@ def viz_cfo_phase(df: pd.DataFrame, out_dir: str):
         if len(sub)==0: continue
         tag = f"{mod1}_{mod2}"
 
-        # 分别聚合 BER1 和 BER2
+        # 分别聚合 SER1 和 SER2
         agg1 = (sub
                 .groupby(['phi_bin','delta_cfo'], as_index=False)
-                .agg(N=('BER1','count'),
-                     mean_BER1=('BER1','mean'),
-                     sem_BER1=('BER1', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
+                .agg(N=('SER1','count'),
+                     mean_SER1=('SER1','mean'),
+                     sem_SER1=('SER1', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
         
         agg2 = (sub
                .groupby(['phi_bin','delta_cfo'], as_index=False)
-                .agg(N=('BER2','count'),
-                     mean_BER2=('BER2','mean'),
-                     sem_BER2=('BER2', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
+                .agg(N=('SER2','count'),
+                     mean_SER2=('SER2','mean'),
+                     sem_SER2=('SER2', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
 
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 5))
         
-        # 子图1: BER1
+        # 子图1: SER1
         for pbin in sorted([v for v in agg1['phi_bin'].dropna().unique()]):
             g = agg1[agg1['phi_bin']==pbin].sort_values('delta_cfo')
             if len(g)==0: continue
             xs = g['delta_cfo'].values
-            y = g['mean_BER1'].values
-            e = g['sem_BER1'].fillna(0).values
+            y = g['mean_SER1'].values
+            e = g['sem_SER1'].fillna(0).values
             lbl = f"phi_diff={pbin:.2f} rad ({int(np.degrees(pbin))}°)"
             ax1.semilogy(xs, y, marker='o', label=lbl)
             y_low = np.clip(y - e, 1e-12, 1.0)
@@ -306,16 +306,16 @@ def viz_cfo_phase(df: pd.DataFrame, out_dir: str):
         ax1.axvline(0, color='k', lw=0.8)
         ax1.grid(True); ax1.legend(ncol=2)
         ax1.set_xlabel("delta CFO = f2 - f1 (Hz)")
-        ax1.set_ylabel("Mean BER1 ± SEM (log y)")
-        ax1.set_title(f"BER1 vs delta CFO per phase diff | {tag} ({mod1})")
+        ax1.set_ylabel("Mean SER1 ± SEM (log y)")
+        ax1.set_title(f"SER1 vs delta CFO per phase diff | {tag} ({mod1})")
         
-        # 子图2: BER2
+        # 子图2: SER2
         for pbin in sorted([v for v in agg2['phi_bin'].dropna().unique()]):
             g = agg2[agg2['phi_bin']==pbin].sort_values('delta_cfo')
             if len(g)==0: continue
             xs = g['delta_cfo'].values
-            y = g['mean_BER2'].values
-            e = g['sem_BER2'].fillna(0).values
+            y = g['mean_SER2'].values
+            e = g['sem_SER2'].fillna(0).values
             lbl = f"phi_diff={pbin:.2f} rad ({int(np.degrees(pbin))}°)"
             ax2.semilogy(xs, y, marker='o', label=lbl)
             y_low = np.clip(y - e, 1e-12, 1.0)
@@ -324,62 +324,62 @@ def viz_cfo_phase(df: pd.DataFrame, out_dir: str):
         ax2.axvline(0, color='k', lw=0.8)
         ax2.grid(True); ax2.legend(ncol=2)
         ax2.set_xlabel("delta CFO = f2 - f1 (Hz)")
-        ax2.set_ylabel("Mean BER2 ± SEM (log y)")
-        ax2.set_title(f"BER2 vs delta CFO per phase diff | {tag} ({mod2})")
+        ax2.set_ylabel("Mean SER2 ± SEM (log y)")
+        ax2.set_title(f"SER2 vs delta CFO per phase diff | {tag} ({mod2})")
         
         plt.tight_layout()
-        save_fig(os.path.join(out_dir, f"cfo_phase_ber_vs_delta_{tag}.png"))
+        save_fig(os.path.join(out_dir, f"cfo_phase_ser_vs_delta_{tag}.png"))
 
 
 # ========== mode=delay：test_delay ==========
 def viz_delay(df: pd.DataFrame, out_dir: str):
     """
     期望 CSV 至少有：
-      - BER1, BER2, delay_diff, mod1, mod2
-    图：对每个 mod_pair，分别画 BER1 和 BER2 vs delay_diff。
+      - SER1, SER2, delay_diff, mod1, mod2
+    图：对每个 mod_pair，分别画 SER1 和 SER2 vs delay_diff。
     """
-    required = {"BER1", "BER2", "delay_diff", "mod1", "mod2"}
+    required = {"SER1", "SER2", "delay_diff", "mod1", "mod2"}
     if not required.issubset(df.columns):
         print("[delay] CSV 缺少必要列，跳过；需要：", required)
         return
 
-    df2 = df.dropna(subset=['delay_diff','BER1','BER2','mod1','mod2']).copy()
+    df2 = df.dropna(subset=['delay_diff','SER1','SER2','mod1','mod2']).copy()
     mod_pairs = sorted(df2[['mod1','mod2']].drop_duplicates().values.tolist())
     for mod1, mod2 in mod_pairs:
         sub = df2[(df2['mod1']==mod1) & (df2['mod2']==mod2)]
         if len(sub)==0: continue
         tag = f"{mod1}_{mod2}"
 
-        # 分别聚合 BER1 和 BER2
+        # 分别聚合 SER1 和 SER2
         agg1 = (sub
                .groupby('delay_diff', as_index=False)
-                .agg(N=('BER1','count'),
-                     mean_BER1=('BER1','mean'),
-                     sem_BER1=('BER1', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
+                .agg(N=('SER1','count'),
+                     mean_SER1=('SER1','mean'),
+                     sem_SER1=('SER1', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
         agg1 = agg1.sort_values('delay_diff')
 
         agg2 = (sub
                 .groupby('delay_diff', as_index=False)
-                .agg(N=('BER2','count'),
-                     mean_BER2=('BER2','mean'),
-                     sem_BER2=('BER2', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
+                .agg(N=('SER2','count'),
+                     mean_SER2=('SER2','mean'),
+                     sem_SER2=('SER2', lambda x: np.std(x, ddof=1) / np.sqrt(max(1, len(x))))) )
         agg2 = agg2.sort_values('delay_diff')
 
         xs = agg1['delay_diff'].values
-        y1 = agg1['mean_BER1'].values
-        e1 = agg1['sem_BER1'].fillna(0).values
-        y2 = agg2['mean_BER2'].values
-        e2 = agg2['sem_BER2'].fillna(0).values
+        y1 = agg1['mean_SER1'].values
+        e1 = agg1['sem_SER1'].fillna(0).values
+        y2 = agg2['mean_SER2'].values
+        e2 = agg2['sem_SER2'].fillna(0).values
 
         plt.figure(figsize=(7,5))
-        # 绘制 BER1
-        plt.semilogy(xs, y1, marker='o', label=f'BER1 ({mod1})', linewidth=1.5)
+        # 绘制 SER1
+        plt.semilogy(xs, y1, marker='o', label=f'SER1 ({mod1})', linewidth=1.5)
         y1_low = np.clip(y1 - e1, 1e-12, 1.0)
         y1_high = np.clip(y1 + e1, 1e-12, 1.0)
         plt.fill_between(xs, y1_low, y1_high, alpha=0.15)
         
-        # 绘制 BER2
-        plt.semilogy(xs, y2, marker='s', label=f'BER2 ({mod2})', linewidth=1.5)
+        # 绘制 SER2
+        plt.semilogy(xs, y2, marker='s', label=f'SER2 ({mod2})', linewidth=1.5)
         y2_low = np.clip(y2 - e2, 1e-12, 1.0)
         y2_high = np.clip(y2 + e2, 1e-12, 1.0)
         plt.fill_between(xs, y2_low, y2_high, alpha=0.15)
@@ -387,9 +387,9 @@ def viz_delay(df: pd.DataFrame, out_dir: str):
         plt.grid(True)
         plt.legend()
         plt.xlabel("delay_diff (samples)")
-        plt.ylabel("Mean BER ± SEM (log y)")
-        plt.title(f"BER1 & BER2 vs delay_diff | {tag}")
-        save_fig(os.path.join(out_dir, f"delay_ber_vs_delaydiff_{tag}.png"))
+        plt.ylabel("Mean SER ± SEM (log y)")
+        plt.title(f"SER1 & SER2 vs delay_diff | {tag}")
+        save_fig(os.path.join(out_dir, f"delay_ser_vs_delaydiff_{tag}.png"))
 
 
 # ==================== 主入口 ====================
